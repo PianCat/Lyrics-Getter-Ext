@@ -23,8 +23,8 @@ import java.util.Objects;
 
 public class LrcGetter {
     private static final ILrcProvider[] providers = {
-            new QQMusicProvider(),
             new NeteaseProvider(),
+            new QQMusicProvider(),
             new KugouProvider(),
             new MusixMatchProvider()
     };
