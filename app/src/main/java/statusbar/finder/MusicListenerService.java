@@ -43,6 +43,7 @@ import java.util.Locale;
 import java.util.Objects;
 
 import static statusbar.finder.misc.Constants.PREFERENCE_KEY_REQUIRE_TRANSLATE;
+import static statusbar.finder.misc.Constants.PREFERENCE_KEY_TRANSLATE_TYPE;
 
 public class MusicListenerService extends NotificationListenerService {
 
@@ -73,9 +74,9 @@ public class MusicListenerService extends NotificationListenerService {
     private Thread curLrcUpdateThread;
     private API lyricsGetterApi;
     public static MusicListenerService instance;
-    private SharedPreferences offsetpreferences;
-    private SharedPreferences translationstatusreferences;
-    public String musicinfo;
+    private SharedPreferences offsetPreferences;
+    private SharedPreferences translationStatusReferences;
+    public String musicInfo;
 
     private final Handler mHandler = new Handler(Objects.requireNonNull(Looper.myLooper())) {
         @Override
@@ -172,19 +173,19 @@ public class MusicListenerService extends NotificationListenerService {
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-//        Notification notification = sbn.getNotification();
-//            if (sbn.isClearable()){
-//                if (notification != null) {
-//                    String lyricText = String.format("%s : %s", notification.extras.getString(Notification.EXTRA_TITLE), notification.extras.getString(Notification.EXTRA_TEXT));
-//                    lyricsGetterApi.sendLyric(lyricText,new ExtraData(
-//                            true,
-//                            drawBase64,
-//                            false,
-//                            getPackageName(),
-//                            0
-//                    ));
-//                }
-//        }
+    //        Notification notification = sbn.getNotification();
+    //            if (sbn.isClearable()){
+    //                if (notification != null) {
+    //                    String lyricText = String.format("%s : %s", notification.extras.getString(Notification.EXTRA_TITLE), notification.extras.getString(Notification.EXTRA_TEXT));
+    //                    lyricsGetterApi.sendLyric(lyricText,new ExtraData(
+    //                            true,
+    //                            drawBase64,
+    //                            false,
+    //                            getPackageName(),
+    //                            0
+    //                    ));
+    //                }
+    //        }
     }
 
     @SuppressLint("UseCompatLoadingForDrawables")
@@ -192,8 +193,8 @@ public class MusicListenerService extends NotificationListenerService {
     public void onListenerConnected() {
         super.onListenerConnected();
         instance = this;
-        offsetpreferences = getSharedPreferences("offset", MODE_PRIVATE);
-        translationstatusreferences = getSharedPreferences("translationstatus", MODE_PRIVATE);
+        offsetPreferences = getSharedPreferences("offset", MODE_PRIVATE);
+        translationStatusReferences = getSharedPreferences("translationstatus", MODE_PRIVATE);
         lyricsGetterApi = new API();
         drawBase64 = Tools.INSTANCE.drawableToBase64(getDrawable(R.drawable.ic_statusbar_icon));
         // Log.d("systemLanguage", systemLanguage);
@@ -344,15 +345,15 @@ public class MusicListenerService extends NotificationListenerService {
     }
     public void sync(){
         Lyric.Sentence sentence;
-        if (translationstatusreferences.getBoolean(musicinfo, false)) {
-            mLyric.offset = offsetpreferences.getInt(musicinfo + " ,tran", mLyric.offset);
+        if (translationStatusReferences.getBoolean(musicInfo, false)) {
+            mLyric.offset = offsetPreferences.getInt(musicInfo + " ,tran", mLyric.offset);
             sentence = LyricUtils.getSentence(mLyric.translatedSentenceList, mMediaController.getPlaybackState().getPosition(), 0, mLyric.offset);
         } else {
-            mLyric.offset = offsetpreferences.getInt(musicinfo, mLyric.offset);
+            mLyric.offset = offsetPreferences.getInt(musicInfo, mLyric.offset);
             sentence = LyricUtils.getSentence(mLyric.sentenceList, mMediaController.getPlaybackState().getPosition(), 0, mLyric.offset);
         }
-        String curLyric = sentence.content.trim();
-        mLyricNotification.tickerText = curLyric;
+        if (sentence == null) {return;}
+        mLyricNotification.tickerText = sentence.content.trim();
         mNotificationManager.notify(NOTIFICATION_ID_LRC, mLyricNotification);
     }
     private void updateLyric(long position) {
@@ -360,18 +361,18 @@ public class MusicListenerService extends NotificationListenerService {
             return;
         }
 
-        musicinfo = "Title:" + mLyric.title
+        musicInfo = "Title:" + mLyric.title
                 + " ,Artist:" + mLyric.artist
                 + " ,Album:" + mLyric.album
                 + " ,By:" + mLyric.by
                 + " ,Author:" + mLyric.author
                 + " ,Length:" + mLyric.length;
-        if (translationstatusreferences.getBoolean(musicinfo, false))
-            mLyric.offset = offsetpreferences.getInt(musicinfo + " ,tran", mLyric.offset);
+        if (translationStatusReferences.getBoolean(musicInfo, false))
+            mLyric.offset = offsetPreferences.getInt(musicInfo + " ,tran", mLyric.offset);
         else
-            mLyric.offset = offsetpreferences.getInt(musicinfo, mLyric.offset);
+            mLyric.offset = offsetPreferences.getInt(musicInfo, mLyric.offset);
         Lyric.Sentence sentence;
-        if (translationstatusreferences.getBoolean(musicinfo, false) && !mSharedPreferences.getBoolean(PREFERENCE_KEY_REQUIRE_TRANSLATE, false))
+        if (translationStatusReferences.getBoolean(musicInfo, false) && !mSharedPreferences.getBoolean(PREFERENCE_KEY_REQUIRE_TRANSLATE, false))
             sentence = LyricUtils.getSentence(mLyric.translatedSentenceList, position, 0, mLyric.offset);
         else
             sentence = LyricUtils.getSentence(mLyric.sentenceList, position, 0, mLyric.offset);
@@ -384,14 +385,29 @@ public class MusicListenerService extends NotificationListenerService {
             if (sentence.content.isEmpty()) {
                 return;
             }
-            String curLyric = sentence.content.trim();
-            Lyric.Sentence translatedSentence = null;
-            if (mSharedPreferences.getBoolean(PREFERENCE_KEY_REQUIRE_TRANSLATE, false)) { // 增添翻译
-                translatedSentence = getTranslatedSentence(position);
-                if (translatedSentence != null && !Objects.equals(translatedSentence.content, "") && !Objects.equals(sentence.content, "")) {
-                    curLyric += "\n\r" + translatedSentence.content.trim();
-                }
-            }
+            String curLyric;
+            String translateType = mSharedPreferences.getString(PREFERENCE_KEY_TRANSLATE_TYPE, "origin");
+            Lyric.Sentence translatedSentence = getTranslatedSentence(position);
+            curLyric = switch (translateType) {
+                case "translated" ->
+                        translatedSentence != null ? translatedSentence.content.trim() :
+                                sentence.content.trim();
+                case "both" ->
+                        sentence.content.trim() + (
+                                translatedSentence != null ?
+                                        ("\n\r" + translatedSentence.content.trim()) :
+                                        "");
+                default -> sentence.content.trim();
+            };
+            int adjustment = "both".equals(translateType) && translatedSentence != null ? delay / 2 : delay;
+            delay = adjustment - 3;
+//            if (mSharedPreferences.getBoolean(PREFERENCE_KEY_REQUIRE_TRANSLATE, false)) { // 增添翻译
+//                translatedSentence = getTranslatedSentence(position);
+//                if (translatedSentence != null && !Objects.equals(translatedSentence.content, "") && !Objects.equals(sentence.content, "")) {
+//                    curLyric += "\n\r" + translatedSentence.content.trim();
+//                }
+//            }
+            delay = Math.max(delay, 1);
             LyricsChanged.Data data = new LyricsChanged.Data(sentence.content.trim(), translatedSentence != null ? translatedSentence.content.trim() : null, delay);
             LyricsChanged.getInstance().notifyLyrics(data);
             // mLyricNotification = buildLrcNotification(data);
@@ -403,8 +419,14 @@ public class MusicListenerService extends NotificationListenerService {
                     drawBase64,
                     false,
                     getPackageName(),
-                    delay
+                    delay // 单位: 秒 (Second)
+                    // 文档里写毫秒骗人呢，别信，信我，我怎么可能骗你呢
             ));
+            CSLyricHelper.updateLyric(
+                    getApplicationContext(),
+                    new CSLyricHelper.PlayInfo(drawBase64, getPackageName()),
+                    new CSLyricHelper.LyricData(curLyric)
+            );
             mLyricNotification.tickerText = curLyric;
             mLyricNotification.when = System.currentTimeMillis();
             mNotificationManager.notify(NOTIFICATION_ID_LRC, mLyricNotification);
@@ -413,19 +435,26 @@ public class MusicListenerService extends NotificationListenerService {
     }
 
     private int calculateDelay(long position) {
+        // 注意: 结果的单位为秒 (Second)
         int nextFoundIndex = LyricUtils.getSentenceIndex(mLyric.sentenceList, position, 0, mLyric.offset) + 1;
 
+        // 如果没有更多的歌词，直接返回 1
         if (nextFoundIndex >= mLyric.sentenceList.size()) {
             return 1;
         }
 
-        int delay = (int) ((mLyric.sentenceList.get(nextFoundIndex).fromTime - position) / 1000) - 3;
+        // 计算延迟时间
+        int delay = (int) ((mLyric.sentenceList.get(nextFoundIndex).fromTime - position) / 1000);
 
-        if (translationstatusreferences.getBoolean(musicinfo, false) && !mLyric.translatedSentenceList.isEmpty()) {
-            delay /= 2;
-        }
+//        // 如果开启翻译状态并且翻译歌词列表不为空，减半延迟
+//        if (translationStatusReferences.getBoolean(musicInfo, false) && getTranslatedSentence(position) != null) {
+//            delay /= 2;
+//        }
+
+        // 确保延迟时间最小为 1
         return Math.max(delay, 1);
     }
+
 
     private Lyric.Sentence getTranslatedSentence(long position) {  // 获取翻译歌词
         if (!mLyric.translatedSentenceList.isEmpty()) {
